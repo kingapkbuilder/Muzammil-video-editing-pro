@@ -23,16 +23,14 @@ jobs:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 2. Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: 3. Set up Java JDK 17
+      - name: 2. Set up Java JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: 17
+
+      - name: 3. Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: 4. Accept Android Licenses
         run: |
@@ -41,40 +39,180 @@ jobs:
           echo "84831b9409646a533e30ed73b498a73372ad6f50" >> "$ANDROID_HOME/licenses/android-sdk-license" 2>/dev/null || true
           echo "d56f5187479451eabf01fb78af6dfcb131a6481e" >> "$ANDROID_HOME/licenses/android-sdk-license" 2>/dev/null || true
 
-      - name: 5. Build Android APK
+      - name: 5. Prepare Android Project Structure
         run: |
-          # Case A: If Android Gradle project exists directly in repo
-          if [ -f "app/build.gradle" ]; then
-            echo "==> Building native Android project directly with Gradle..."
-            chmod +x ./gradlew 2>/dev/null || true
-            ./gradlew assembleDebug --no-daemon --stacktrace || gradle assembleDebug --no-daemon --stacktrace
-            exit 0
-          fi
+          mkdir -p app/src/main/java/com/muzammil/videoeditor
+          mkdir -p app/src/main/res/values
 
-          # Case B: If Web project, compile web and sync to Android
-          echo "==> Installing Node & Capacitor dependencies..."
-          npm install --force || npm install --legacy-peer-deps
-          npm install --force @capacitor/core @capacitor/cli @capacitor/android
+          # settings.gradle
+          cat << 'EOF' > settings.gradle
+          include ':app'
+          rootProject.name = "Muzammil4KPro"
+          EOF
 
-          echo "==> Building Web App Dist..."
-          npm run build || npx vite build
+          # gradle.properties
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          android.enableJetifier=true
+          android.builder.sdkDownload=true
+          EOF
 
-          echo "==> Setting up Capacitor Android..."
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
-          npx cap sync android
+          # root build.gradle
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
 
-          echo "==> Compiling Debug APK with Gradle..."
-          cd android
-          chmod +x ./gradlew 2>/dev/null || true
-          ./gradlew assembleDebug --no-daemon --stacktrace || gradle assembleDebug --no-daemon
+          # app/build.gradle
+          cat << 'EOF' > app/build.gradle
+          apply plugin: 'com.android.application'
 
-      - name: 6. Upload Installable APK Artifact
+          android {
+              namespace "com.muzammil.videoeditor"
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.muzammil.videoeditor"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0.0"
+              }
+
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+                  debug {
+                      applicationIdSuffix ".debug"
+                      debuggable true
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.google.android.material:material:1.11.0'
+              implementation 'androidx.webkit:webkit:1.10.0'
+          }
+          EOF
+
+          # AndroidManifest.xml
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+              <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+              <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+              <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
+
+              <application
+                  android:allowBackup="true"
+                  android:hardwareAccelerated="true"
+                  android:label="Muzammil 4K Pro"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.AppCompat.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:hardwareAccelerated="true"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # MainActivity.java
+          cat << 'EOF' > app/src/main/java/com/muzammil/videoeditor/MainActivity.java
+          package com.muzammil.videoeditor;
+
+          import android.annotation.SuppressLint;
+          import android.os.Bundle;
+          import android.view.View;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+          import androidx.appcompat.app.AppCompatActivity;
+
+          public class MainActivity extends AppCompatActivity {
+              private WebView webView;
+
+              @SuppressLint("SetJavaScriptEnabled")
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  setContentView(webView);
+
+                  webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setAllowFileAccess(true);
+                  s.setAllowContentAccess(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setUseWideViewPort(true);
+                  s.setLoadWithOverviewMode(true);
+
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.loadUrl("https://ais-pre-bnwrn7edwq6ll2nes4i5s7-56779114814.asia-southeast1.run.app");
+              }
+
+              @Override
+              public void onBackPressed() {
+                  if (webView != null && webView.canGoBack()) {
+                      webView.goBack();
+                  } else {
+                      super.onBackPressed();
+                  }
+              }
+          }
+          EOF
+
+          # styles.xml
+          cat << 'EOF' > app/src/main/res/values/styles.xml
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.NoActionBar">
+                  <item name="android:statusBarColor">#0b0c12</item>
+              </style>
+          </resources>
+          EOF
+
+      - name: 6. Compile Android Debug APK with Gradle
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: 7. Upload Installable APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Muzammil-4K-Pro-APK
-          path: |
-            app/build/outputs/apk/debug/*.apk
-            android/app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           retention-days: 14
